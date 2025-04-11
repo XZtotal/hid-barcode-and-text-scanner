@@ -53,6 +53,7 @@ fun CameraPreviewContent(
     viewModel: CameraViewModel = viewModel<CameraViewModel>(),
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
     onBarcodeDetected: (String) -> Unit,
+    onTextDetected: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -77,6 +78,7 @@ fun CameraPreviewContent(
                 focusMode,
                 onCameraReady = onCameraReady,
                 onBarcode = onBarcodeDetected,
+                onText = onTextDetected,
             )
         }.onFailure {
             Log.e("CameraPreview", "Error binding camera!", it)

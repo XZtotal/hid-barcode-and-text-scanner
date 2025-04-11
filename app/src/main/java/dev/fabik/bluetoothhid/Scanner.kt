@@ -74,6 +74,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import dev.fabik.bluetoothhid.bt.KeyTranslator
 import dev.fabik.bluetoothhid.ui.CameraPreviewContent
 import dev.fabik.bluetoothhid.ui.DialogState
@@ -138,6 +141,7 @@ fun Scanner(
     sendText: (String) -> Unit
 ) {
     var currentBarcode by rememberSaveable { mutableStateOf<String?>(null) }
+    var currentText by rememberSaveable { mutableStateOf<String?>(null) }
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
     var cameraInfo by remember { mutableStateOf<CameraInfo?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -155,7 +159,7 @@ fun Scanner(
         floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
             currentDevice?.let {
-                SendToDeviceFAB(currentBarcode, currentSendText)
+                SendToDeviceFAB(currentBarcode, currentText, currentSendText)
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -168,10 +172,11 @@ fun Scanner(
             RequiresCameraPermission {
                 CameraPreviewArea(
                     onCameraReady = { control, info -> cameraControl = control; cameraInfo = info }
-                ) { value, send ->
+                ) { value, text, send ->
                     currentBarcode = value
+                    currentText = text
                     if (send) {
-                        currentSendText(value)
+                        currentSendText(value ?: text ?: "")
                     }
                 }
             }
@@ -183,7 +188,7 @@ fun Scanner(
                 .fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            BarcodeValue(currentBarcode)
+            BarcodeValue(currentBarcode, currentText)
             CapsLockWarning()
 
             ElevatedWarningCard(
@@ -212,7 +217,7 @@ fun Scanner(
 @Composable
 private fun CameraPreviewArea(
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
-    onBarcodeDetected: (String, Boolean) -> Unit,
+    onBarcodeDetected: (String?, String?, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -248,8 +253,8 @@ private fun CameraPreviewArea(
     val autoSend by rememberPreferenceDefault(PreferenceStore.AUTO_SEND)
     val vibrate by rememberPreferenceDefault(PreferenceStore.VIBRATE)
 
-    CameraPreviewContent(onCameraReady = onCameraReady) {
-        onBarcodeDetected(it, autoSend)
+    CameraPreviewContent(onCameraReady = onCameraReady) { barcodeValue ->
+        onBarcodeDetected(barcodeValue, null, autoSend)
 
         if (playSound) {
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 75)
@@ -261,15 +266,46 @@ private fun CameraPreviewArea(
             )
         }
     }
+
+    // Text recognition using ML Kit
+    val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    CameraPreviewContent(onCameraReady = onCameraReady) { imageProxy ->
+        val mediaImage = imageProxy.image
+        if (mediaImage != null) {
+            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+            recognizer.process(image)
+                .addOnSuccessListener { visionText ->
+                    val textValue = visionText.text
+                    onBarcodeDetected(null, textValue, autoSend)
+
+                    if (playSound) {
+                        toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 75)
+                    }
+
+                    if (vibrate && vibrator.hasVibrator()) {
+                        vibrator.vibrate(
+                            VibrationEffect.createOneShot(75, VibrationEffect.DEFAULT_AMPLITUDE)
+                        )
+                    }
+                }
+                .addOnFailureListener { e ->
+                    Log.e("Scanner", "Text recognition error", e)
+                }
+                .addOnCompleteListener {
+                    imageProxy.close()
+                }
+        }
+    }
 }
 
 /**
  * Text showing the current barcode value. If the value is null, a generic message is shown instead.
  *
  * @param currentBarcode the current barcode value
+ * @param currentText the current text value
  */
 @Composable
-private fun BoxScope.BarcodeValue(currentBarcode: String?) {
+private fun BoxScope.BarcodeValue(currentBarcode: String?, currentText: String?) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val privateMode by rememberPreference(PreferenceStore.PRIVATE_MODE)
@@ -283,11 +319,13 @@ private fun BoxScope.BarcodeValue(currentBarcode: String?) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         val copiedString = stringResource(R.string.copied_to_clipboard)
-        var hideText by remember(privateMode, currentBarcode) {
+        var hideText by remember(privateMode, currentBarcode, currentText) {
             mutableStateOf(privateMode)
         }
 
-        currentBarcode?.let {
+        val displayText = currentBarcode ?: currentText
+
+        displayText?.let {
             val text = AnnotatedString(
                 if (hideText) "*".repeat(it.length) else it,
                 SpanStyle(Neutral95),
@@ -317,19 +355,23 @@ private fun BoxScope.BarcodeValue(currentBarcode: String?) {
 }
 
 /**
- * Floating action button to send the current barcode to the connected device.
- * If the currentBarcode is null, the button is hidden.
+ * Floating action button to send the current barcode or text to the connected device.
+ * If both currentBarcode and currentText are null, the button is hidden.
  *
  * @param currentBarcode the current barcode value
+ * @param currentText the current text value
  * @param onClick callback to send text to the current device
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SendToDeviceFAB(
     currentBarcode: String?,
+    currentText: String?,
     onClick: (String) -> Unit
 ) {
-    currentBarcode?.let {
+    val displayText = currentBarcode ?: currentText
+
+    displayText?.let {
         val controller = LocalController.current
         val colorScheme = MaterialTheme.colorScheme
 
@@ -537,7 +579,7 @@ fun DeviceInfoDialog(
                         BluetoothDevice.DEVICE_TYPE_CLASSIC -> "Classic"
                         BluetoothDevice.DEVICE_TYPE_UNKNOWN -> "Unknown"
                         else -> "?"
-                    } + " (${device.type})"
+                    } + " (${this})"
                 )
             }
 

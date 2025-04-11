@@ -4,12 +4,16 @@ import android.util.Size
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import zxingcpp.BarcodeReader
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 class ZXingAnalyzer(
     initialOptions: BarcodeReader.Options = BarcodeReader.Options(),
     var scanDelay: Int,
     private val onAnalyze: () -> Unit,
     private val onResult: (barcodes: List<BarcodeReader.Result>, sourceImage: Size) -> Unit,
+    private val onTextResult: (text: String) -> Unit
 ) : ImageAnalysis.Analyzer {
 
     companion object {
@@ -58,6 +62,7 @@ class ZXingAnalyzer(
 
     private val reader = BarcodeReader(initialOptions)
     private var lastAnalyzedTimeStamp = 0L
+    private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     fun setOptions(options: BarcodeReader.Options) {
         reader.options = options
@@ -76,6 +81,18 @@ class ZXingAnalyzer(
                 reader.read(image)
             }
             onResult(results, Size(image.width, image.height))
+
+            val mediaImage = image.image
+            if (mediaImage != null) {
+                val inputImage = InputImage.fromMediaImage(mediaImage, image.imageInfo.rotationDegrees)
+                recognizer.process(inputImage)
+                    .addOnSuccessListener { visionText ->
+                        onTextResult(visionText.text)
+                    }
+                    .addOnFailureListener { e ->
+                        // Handle the error
+                    }
+            }
         }
 
         onAnalyze()
