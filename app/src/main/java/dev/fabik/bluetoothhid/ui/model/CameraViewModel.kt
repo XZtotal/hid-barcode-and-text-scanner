@@ -49,6 +49,8 @@ import zxingcpp.BarcodeReader
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import java.util.Queue
+import java.util.concurrent.ConcurrentLinkedQueue
 
 // based on: https://medium.com/androiddevelopers/getting-started-with-camerax-in-jetpack-compose-781c722ca0c4
 class CameraViewModel : ViewModel() {
@@ -137,7 +139,10 @@ class CameraViewModel : ViewModel() {
         )
         barcodeAnalyzer = analyzer
 
-        val ocrAnalyzer = OcrAnalyzer(onTextDetected)
+        val ocrBuffer: Queue<String> = ConcurrentLinkedQueue() // P6497
+        val bufferLock = Any() // P6497
+
+        val ocrAnalyzer = OcrAnalyzer(onTextDetected, ocrBuffer, bufferLock, scanRect.toAndroidRect()) // P6497
         this.ocrAnalyzer = ocrAnalyzer
 
         val resolutionSelector = ResolutionSelector.Builder().setResolutionStrategy(
