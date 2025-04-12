@@ -138,6 +138,7 @@ fun Scanner(
     sendText: (String) -> Unit
 ) {
     var currentBarcode by rememberSaveable { mutableStateOf<String?>(null) }
+    var currentOcrText by rememberSaveable { mutableStateOf<String?>(null) }
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
     var cameraInfo by remember { mutableStateOf<CameraInfo?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -155,7 +156,7 @@ fun Scanner(
         floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
             currentDevice?.let {
-                SendToDeviceFAB(currentBarcode, currentSendText)
+                SendToDeviceFAB(currentBarcode, currentOcrText, currentSendText)
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -168,8 +169,12 @@ fun Scanner(
             RequiresCameraPermission {
                 CameraPreviewArea(
                     onCameraReady = { control, info -> cameraControl = control; cameraInfo = info }
-                ) { value, send ->
-                    currentBarcode = value
+                ) { value, send, isOcr ->
+                    if (isOcr) {
+                        currentOcrText = value
+                    } else {
+                        currentBarcode = value
+                    }
                     if (send) {
                         currentSendText(value)
                     }
@@ -183,7 +188,7 @@ fun Scanner(
                 .fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            BarcodeValue(currentBarcode)
+            BarcodeValue(currentBarcode, currentOcrText)
             CapsLockWarning()
 
             ElevatedWarningCard(
@@ -212,7 +217,7 @@ fun Scanner(
 @Composable
 private fun CameraPreviewArea(
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
-    onBarcodeDetected: (String, Boolean) -> Unit,
+    onBarcodeDetected: (String, Boolean, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -248,8 +253,8 @@ private fun CameraPreviewArea(
     val autoSend by rememberPreferenceDefault(PreferenceStore.AUTO_SEND)
     val vibrate by rememberPreferenceDefault(PreferenceStore.VIBRATE)
 
-    CameraPreviewContent(onCameraReady = onCameraReady) {
-        onBarcodeDetected(it, autoSend)
+    CameraPreviewContent(onCameraReady = onCameraReady) { value, isOcr ->
+        onBarcodeDetected(value, autoSend, isOcr)
 
         if (playSound) {
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 75)
@@ -267,9 +272,10 @@ private fun CameraPreviewArea(
  * Text showing the current barcode value. If the value is null, a generic message is shown instead.
  *
  * @param currentBarcode the current barcode value
+ * @param currentOcrText the current OCR text value
  */
 @Composable
-private fun BoxScope.BarcodeValue(currentBarcode: String?) {
+private fun BoxScope.BarcodeValue(currentBarcode: String?, currentOcrText: String?) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val privateMode by rememberPreference(PreferenceStore.PRIVATE_MODE)
@@ -283,11 +289,13 @@ private fun BoxScope.BarcodeValue(currentBarcode: String?) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         val copiedString = stringResource(R.string.copied_to_clipboard)
-        var hideText by remember(privateMode, currentBarcode) {
+        var hideText by remember(privateMode, currentBarcode, currentOcrText) {
             mutableStateOf(privateMode)
         }
 
-        currentBarcode?.let {
+        val textToShow = currentBarcode ?: currentOcrText
+
+        textToShow?.let {
             val text = AnnotatedString(
                 if (hideText) "*".repeat(it.length) else it,
                 SpanStyle(Neutral95),
@@ -317,19 +325,23 @@ private fun BoxScope.BarcodeValue(currentBarcode: String?) {
 }
 
 /**
- * Floating action button to send the current barcode to the connected device.
- * If the currentBarcode is null, the button is hidden.
+ * Floating action button to send the current barcode or OCR text to the connected device.
+ * If both currentBarcode and currentOcrText are null, the button is hidden.
  *
  * @param currentBarcode the current barcode value
+ * @param currentOcrText the current OCR text value
  * @param onClick callback to send text to the current device
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SendToDeviceFAB(
     currentBarcode: String?,
+    currentOcrText: String?,
     onClick: (String) -> Unit
 ) {
-    currentBarcode?.let {
+    val textToSend = currentBarcode ?: currentOcrText
+
+    textToSend?.let {
         val controller = LocalController.current
         val colorScheme = MaterialTheme.colorScheme
 
