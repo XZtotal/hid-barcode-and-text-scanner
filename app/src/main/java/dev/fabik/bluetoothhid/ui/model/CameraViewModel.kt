@@ -36,6 +36,7 @@ import androidx.lifecycle.viewModelScope
 import dev.fabik.bluetoothhid.utils.JsEngineService
 import dev.fabik.bluetoothhid.utils.LatencyTrace
 import dev.fabik.bluetoothhid.utils.ZXingAnalyzer
+import dev.fabik.bluetoothhid.utils.OcrAnalyzer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -68,8 +69,10 @@ class CameraViewModel : ViewModel() {
     private var cameraControl: CameraControl? = null
     private var cameraInfo: CameraInfo? = null
     private var barcodeAnalyzer: ZXingAnalyzer? = null
+    private var ocrAnalyzer: OcrAnalyzer? = null
 
     private var onBarcodeDetected: (String, BarcodeReader.Format) -> Unit = { _, _ -> }
+    private var onTextDetected: (String) -> Unit = {}
 
     var scanRect = Rect.Zero
     var overlayPosition by mutableStateOf<Offset?>(null)
@@ -105,6 +108,7 @@ class CameraViewModel : ViewModel() {
         focusMode: Int,
         onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
         onBarcode: (String) -> Unit,
+        onOcr: (String) -> Unit,
     ) {
         Log.d(TAG, "Binding camera...")
         val processCameraProvider = ProcessCameraProvider.awaitInstance(appContext)
@@ -117,6 +121,13 @@ class CameraViewModel : ViewModel() {
             }
         }
 
+        onTextDetected = { value ->
+            if (!value.contentEquals(_lastOcrText)) {
+                onOcr(value)
+                _lastOcrText = value
+            }
+        }
+
         val analyzer = ZXingAnalyzer(
             _readerOptions,
             _scanDelay,
@@ -124,6 +135,9 @@ class CameraViewModel : ViewModel() {
             ::onBarcodeResult
         )
         barcodeAnalyzer = analyzer
+
+        val ocrAnalyzer = OcrAnalyzer(onTextDetected)
+        this.ocrAnalyzer = ocrAnalyzer
 
         val resolutionSelector = ResolutionSelector.Builder().setResolutionStrategy(
             ResolutionStrategy(
@@ -175,9 +189,13 @@ class CameraViewModel : ViewModel() {
         val analysis = analyzerBuilder.build()
         analysis.setAnalyzer(Executors.newSingleThreadExecutor(), analyzer)
 
+        val ocrAnalysis = analyzerBuilder.build()
+        ocrAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), ocrAnalyzer)
+
         val useCaseGroup = UseCaseGroup.Builder()
             .addUseCase(cameraPreviewUseCase)
             .addUseCase(analysis)
+            .addUseCase(ocrAnalysis)
             .build()
 
         val camera = processCameraProvider.bindToLifecycle(
@@ -310,6 +328,7 @@ class CameraViewModel : ViewModel() {
     }
 
     private var _lastBarcode: String? = null
+    private var _lastOcrText: String? = null
     private val _currentBarcode = MutableStateFlow<Barcode?>(null)
     val currentBarcode: StateFlow<Barcode?> = _currentBarcode.asStateFlow()
 
