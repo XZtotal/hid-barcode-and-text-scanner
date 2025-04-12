@@ -41,18 +41,24 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.fabik.bluetoothhid.LocalJsEngineService
+import dev.fabik.bluetoothhid.OcrValue
 import dev.fabik.bluetoothhid.R
 import dev.fabik.bluetoothhid.ui.model.CameraViewModel
 import dev.fabik.bluetoothhid.utils.PreferenceStore
 import dev.fabik.bluetoothhid.utils.getPreferenceStateDefault
 import dev.fabik.bluetoothhid.utils.rememberPreference
 import kotlinx.coroutines.launch
+import java.util.Queue
 
 @Composable
 fun CameraPreviewContent(
     viewModel: CameraViewModel = viewModel<CameraViewModel>(),
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
+    isOcrMode: Boolean, // P8dd9
     onBarcodeDetected: (String) -> Unit,
+    ocrBuffer: Queue<OcrValue>,
+    bufferLock: Any,
+    onOcrDetected: (String) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -66,7 +72,7 @@ fun CameraPreviewContent(
     val fixExposure by rememberPreference(PreferenceStore.FIX_EXPOSURE)
     val focusMode by rememberPreference(PreferenceStore.FOCUS_MODE)
 
-    LaunchedEffect(lifecycleOwner, frontCamera, resolution, fixExposure, focusMode) {
+    LaunchedEffect(lifecycleOwner, frontCamera, resolution, fixExposure, focusMode, isOcrMode) { // P02a7
         runCatching {
             viewModel.bindToCamera(
                 context.applicationContext,
@@ -77,6 +83,10 @@ fun CameraPreviewContent(
                 focusMode,
                 onCameraReady = onCameraReady,
                 onBarcode = onBarcodeDetected,
+                onOcr = onOcrDetected,
+                isOcrMode = isOcrMode, // P02a7
+                ocrBuffer = ocrBuffer,
+                bufferLock = bufferLock
             )
         }.onFailure {
             Log.e("CameraPreview", "Error binding camera!", it)

@@ -3,6 +3,7 @@ package dev.fabik.bluetoothhid.ui.model
 import android.content.Context
 import android.graphics.Point
 import android.graphics.PointF
+
 import android.hardware.camera2.CaptureRequest
 import android.util.Log
 import android.util.Size
@@ -33,9 +34,11 @@ import androidx.core.graphics.toPointF
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.fabik.bluetoothhid.OcrValue
 import dev.fabik.bluetoothhid.utils.JsEngineService
 import dev.fabik.bluetoothhid.utils.LatencyTrace
 import dev.fabik.bluetoothhid.utils.ZXingAnalyzer
+import dev.fabik.bluetoothhid.utils.OcrAnalyzer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -48,6 +51,11 @@ import zxingcpp.BarcodeReader
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import java.util.Queue
+import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.coroutines.coroutineContext
+import android.graphics.Rect as AndroidRect // Import with alias to avoid naming conflict
+import androidx.compose.ui.geometry.Rect as ComposeRect // Import with alias for clarity
 
 // based on: https://medium.com/androiddevelopers/getting-started-with-camerax-in-jetpack-compose-781c722ca0c4
 class CameraViewModel : ViewModel() {
@@ -60,6 +68,15 @@ class CameraViewModel : ViewModel() {
         val UHD_2160P = Size(2160, 1440)
     }
 
+    private fun toAndroidRect(composeRect: ComposeRect): AndroidRect {
+        return AndroidRect(
+            composeRect.left.toInt(),
+            composeRect.top.toInt(),
+            composeRect.right.toInt(),
+            composeRect.bottom.toInt()
+        )
+    }
+
     // Used to set up a link between the Camera and your UI.
     private val _surfaceRequest = MutableStateFlow<SurfaceRequest?>(null)
     val surfaceRequest: StateFlow<SurfaceRequest?> = _surfaceRequest.asStateFlow()
@@ -68,8 +85,10 @@ class CameraViewModel : ViewModel() {
     private var cameraControl: CameraControl? = null
     private var cameraInfo: CameraInfo? = null
     private var barcodeAnalyzer: ZXingAnalyzer? = null
+    private var ocrAnalyzer: OcrAnalyzer? = null
 
     private var onBarcodeDetected: (String, BarcodeReader.Format) -> Unit = { _, _ -> }
+    private var onTextDetected: (String) -> Unit = {}
 
     var scanRect = Rect.Zero
     var overlayPosition by mutableStateOf<Offset?>(null)
@@ -105,6 +124,11 @@ class CameraViewModel : ViewModel() {
         focusMode: Int,
         onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
         onBarcode: (String) -> Unit,
+        onOcr: (String) -> Unit,
+        isOcrMode: Boolean, // P4ddd
+        ocrBuffer: Queue<OcrValue>,
+        bufferLock: Any
+
     ) {
         Log.d(TAG, "Binding camera...")
         val processCameraProvider = ProcessCameraProvider.awaitInstance(appContext)
@@ -117,13 +141,30 @@ class CameraViewModel : ViewModel() {
             }
         }
 
+        onTextDetected = { value ->
+            //if (!value.contentEquals(_lastOcrText)) {
+            if (value.isNotEmpty()) {
+                onOcr(value)
+                _lastOcrText = value
+            }
+            //}
+        }
+
         val analyzer = ZXingAnalyzer(
             _readerOptions,
             _scanDelay,
             ::onBarcodeAnalyze,
-            ::onBarcodeResult
+            ::onBarcodeResult,
         )
         barcodeAnalyzer = analyzer
+
+        val androidRect = toAndroidRect(scanRect)
+
+        val ocrAnalyzer = OcrAnalyzer(
+            onTextDetected = {value: String -> onOcrResult(value,bufferLock,ocrBuffer)},
+            delimitedFrame = scanRect,
+        )
+        this.ocrAnalyzer = ocrAnalyzer
 
         val resolutionSelector = ResolutionSelector.Builder().setResolutionStrategy(
             ResolutionStrategy(
@@ -173,7 +214,11 @@ class CameraViewModel : ViewModel() {
         }
 
         val analysis = analyzerBuilder.build()
-        analysis.setAnalyzer(Executors.newSingleThreadExecutor(), analyzer)
+        if (isOcrMode) { // Pb5e0
+            analysis.setAnalyzer(Executors.newSingleThreadExecutor(), ocrAnalyzer) // Pb5e0
+        } else { // P2810
+            analysis.setAnalyzer(Executors.newSingleThreadExecutor(), analyzer) // P2810
+        } // P2810
 
         val useCaseGroup = UseCaseGroup.Builder()
             .addUseCase(cameraPreviewUseCase)
@@ -310,6 +355,7 @@ class CameraViewModel : ViewModel() {
     }
 
     private var _lastBarcode: String? = null
+    private var _lastOcrText: String? = null
     private val _currentBarcode = MutableStateFlow<Barcode?>(null)
     val currentBarcode: StateFlow<Barcode?> = _currentBarcode.asStateFlow()
 
@@ -369,6 +415,35 @@ class CameraViewModel : ViewModel() {
             } ?: run {
                 onBarcodeDetected(value, barcode.format)
             }
+        }
+    }
+
+    fun onOcrResult(value: String?,  bufferLock: Any, ocrBuffer: Queue<OcrValue>, ) {
+        if (value == null) return;
+        var v = value
+
+//        synchronized(bufferLock) {
+//            ocrBuffer.add(v)
+//        }
+
+        _scanRegex?.let { re ->
+            // extract first capture group if it exists
+            re.find(value)?.let { match ->
+                match.groupValues.getOrNull(1)?.let { group ->
+                    v = group
+                }
+            }
+        }
+        if (v == null) return;
+
+        detectorTrace.trigger()
+        _jsEngineService?.let { s ->
+            viewModelScope.launch(Dispatchers.IO) {
+                v = mapJS(s, v!!.replace("\n"," "), "TEXT")
+                onTextDetected(v ?: return@launch)
+            }
+        } ?: run {
+            onTextDetected(v ?: return)
         }
     }
 

@@ -52,6 +52,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -89,6 +90,11 @@ import dev.fabik.bluetoothhid.utils.PreferenceStore
 import dev.fabik.bluetoothhid.utils.rememberPreference
 import dev.fabik.bluetoothhid.utils.rememberPreferenceDefault
 import kotlinx.coroutines.launch
+import java.util.LinkedList
+import java.util.Queue
+import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.concurrent.schedule
+import kotlin.concurrent.timer
 
 
 @Composable
@@ -126,6 +132,8 @@ fun BoxScope.ElevatedWarningCard(
     }
 }
 
+data class OcrValue(val value: String, val timestamp: Long)
+
 /**
  * Scanner screen with camera preview.
  *
@@ -138,6 +146,7 @@ fun Scanner(
     sendText: (String) -> Unit
 ) {
     var currentBarcode by rememberSaveable { mutableStateOf<String?>(null) }
+    var currentOcrText by rememberSaveable { mutableStateOf<String?>(null) }
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
     var cameraInfo by remember { mutableStateOf<CameraInfo?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -148,14 +157,47 @@ fun Scanner(
 
     val navController = LocalNavigation.current
 
+    // Add a state variable to manage the scanning mode
+    var isOcrMode by rememberSaveable { mutableStateOf(false) }
+
+    // Add a buffer to store OCR values detected in the last 2 seconds
+    val ocrBuffer = remember { ConcurrentLinkedQueue<OcrValue>() }
+
+    val bufferLock = remember { Any() }
+
+    // Function to determine the most frequent OCR value in the buffer
+    fun getMostFrequentOcrValue(): String? {
+        synchronized(bufferLock) {
+            val frequencyMap = ocrBuffer.groupingBy { it.value }.eachCount()
+            return frequencyMap.maxByOrNull { it.value }?.key
+        }
+    }
+
+    // Timer to clear the buffer every 1 seconds
+    LaunchedEffect(Unit) {
+        timer(period = 1000) {
+            val fval = getMostFrequentOcrValue()
+            synchronized(bufferLock) {
+                val currentTime = System.currentTimeMillis()
+                ocrBuffer.removeIf { currentTime - it.timestamp > 1000 }
+                if (fval != null) {
+                    ocrBuffer.add(OcrValue(fval, currentTime))
+                }
+            }
+
+        }
+    }
+
     Scaffold(
         topBar = {
-            ScannerAppBar(cameraControl, cameraInfo, currentDevice, fullScreen)
+            ScannerAppBar(cameraControl, cameraInfo, currentDevice, fullScreen, isOcrMode) {
+                isOcrMode = !isOcrMode
+            }
         },
         floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
             currentDevice?.let {
-                SendToDeviceFAB(currentBarcode, currentSendText)
+                SendToDeviceFAB(currentBarcode, currentOcrText, currentSendText)
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -167,9 +209,16 @@ fun Scanner(
         ) {
             RequiresCameraPermission {
                 CameraPreviewArea(
-                    onCameraReady = { control, info -> cameraControl = control; cameraInfo = info }
-                ) { value, send ->
-                    currentBarcode = value
+                    onCameraReady = { control, info -> cameraControl = control; cameraInfo = info },
+                    isOcrMode = isOcrMode,
+                    ocrBuffer = ocrBuffer, // Pass the buffer to CameraPreviewArea
+                    bufferLock = bufferLock // Pass the buffer lock to CameraPreviewArea
+                ) { value, send, isOcr ->
+                    if (isOcr) {
+                        currentOcrText = getMostFrequentOcrValue() // Use the most frequent OCR value
+                    } else {
+                        currentBarcode = value
+                    }
                     if (send) {
                         currentSendText(value)
                     }
@@ -183,7 +232,7 @@ fun Scanner(
                 .fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            BarcodeValue(currentBarcode)
+            BarcodeValue(currentBarcode, currentOcrText)
             CapsLockWarning()
 
             ElevatedWarningCard(
@@ -212,7 +261,10 @@ fun Scanner(
 @Composable
 private fun CameraPreviewArea(
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
-    onBarcodeDetected: (String, Boolean) -> Unit,
+    isOcrMode: Boolean,
+    ocrBuffer: Queue<OcrValue>, // Add the buffer parameter
+    bufferLock: Any, // Add the buffer lock parameter
+    onBarcodeDetected: (String, Boolean, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
 
@@ -248,8 +300,16 @@ private fun CameraPreviewArea(
     val autoSend by rememberPreferenceDefault(PreferenceStore.AUTO_SEND)
     val vibrate by rememberPreferenceDefault(PreferenceStore.VIBRATE)
 
-    CameraPreviewContent(onCameraReady = onCameraReady) {
-        onBarcodeDetected(it, autoSend)
+    CameraPreviewContent(
+        onCameraReady = onCameraReady,
+        isOcrMode = isOcrMode,
+        onBarcodeDetected = { value ->
+            onBarcodeDetected(value, true, isOcrMode)
+        },
+        ocrBuffer = ocrBuffer,
+        bufferLock = bufferLock
+    ) { value ->
+        onBarcodeDetected(value, autoSend, isOcrMode)
 
         if (playSound) {
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 75)
@@ -260,6 +320,13 @@ private fun CameraPreviewArea(
                 VibrationEffect.createOneShot(75, VibrationEffect.DEFAULT_AMPLITUDE)
             )
         }
+
+        // Add detected OCR value to the buffer
+        if (isOcrMode) {
+            synchronized(bufferLock) {
+                ocrBuffer.add(OcrValue(value, System.currentTimeMillis()))
+            }
+        }
     }
 }
 
@@ -267,9 +334,10 @@ private fun CameraPreviewArea(
  * Text showing the current barcode value. If the value is null, a generic message is shown instead.
  *
  * @param currentBarcode the current barcode value
+ * @param currentOcrText the current OCR text value
  */
 @Composable
-private fun BoxScope.BarcodeValue(currentBarcode: String?) {
+private fun BoxScope.BarcodeValue(currentBarcode: String?, currentOcrText: String?) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val privateMode by rememberPreference(PreferenceStore.PRIVATE_MODE)
@@ -283,11 +351,13 @@ private fun BoxScope.BarcodeValue(currentBarcode: String?) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         val copiedString = stringResource(R.string.copied_to_clipboard)
-        var hideText by remember(privateMode, currentBarcode) {
+        var hideText by remember(privateMode, currentBarcode, currentOcrText) {
             mutableStateOf(privateMode)
         }
 
-        currentBarcode?.let {
+        val textToShow = currentBarcode ?: currentOcrText
+
+        textToShow?.let {
             val text = AnnotatedString(
                 if (hideText) "*".repeat(it.length) else it,
                 SpanStyle(Neutral95),
@@ -317,19 +387,23 @@ private fun BoxScope.BarcodeValue(currentBarcode: String?) {
 }
 
 /**
- * Floating action button to send the current barcode to the connected device.
- * If the currentBarcode is null, the button is hidden.
+ * Floating action button to send the current barcode or OCR text to the connected device.
+ * If both currentBarcode and currentOcrText are null, the button is hidden.
  *
  * @param currentBarcode the current barcode value
+ * @param currentOcrText the current OCR text value
  * @param onClick callback to send text to the current device
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SendToDeviceFAB(
     currentBarcode: String?,
+    currentOcrText: String?,
     onClick: (String) -> Unit
 ) {
-    currentBarcode?.let {
+    val textToSend = currentBarcode ?: currentOcrText
+
+    textToSend?.let {
         val controller = LocalController.current
         val colorScheme = MaterialTheme.colorScheme
 
@@ -384,6 +458,8 @@ private fun ScannerAppBar(
     info: CameraInfo?,
     currentDevice: BluetoothDevice?,
     transparent: Boolean,
+    isOcrMode: Boolean,
+    onToggleMode: () -> Unit
 ) {
     val navigation = LocalNavigation.current
 
@@ -408,9 +484,9 @@ private fun ScannerAppBar(
             }, Modifier.tooltip("History")) {
                 Icon(Icons.Default.History, "History")
             }
-//            IconButton(onDisconnect, Modifier.tooltip(stringResource(R.string.disconnect))) {
-//                Icon(Icons.Default.BluetoothDisabled, "Disconnect")
-//            }
+            IconButton(onClick = onToggleMode, Modifier.tooltip("Toggle Mode")) {
+                Text(if (isOcrMode) "OCR" else "Barcode")
+            }
             Dropdown()
         },
         colors = if (transparent) {
