@@ -109,6 +109,7 @@ class CameraViewModel : ViewModel() {
         onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
         onBarcode: (String) -> Unit,
         onOcr: (String) -> Unit,
+        isOcrMode: Boolean // P4ddd
     ) {
         Log.d(TAG, "Binding camera...")
         val processCameraProvider = ProcessCameraProvider.awaitInstance(appContext)
@@ -187,15 +188,15 @@ class CameraViewModel : ViewModel() {
         }
 
         val analysis = analyzerBuilder.build()
-        analysis.setAnalyzer(Executors.newSingleThreadExecutor(), analyzer)
-
-        val ocrAnalysis = analyzerBuilder.build()
-        ocrAnalysis.setAnalyzer(Executors.newSingleThreadExecutor(), ocrAnalyzer)
+        if (isOcrMode) { // Pb5e0
+            analysis.setAnalyzer(Executors.newSingleThreadExecutor(), ocrAnalyzer) // Pb5e0
+        } else { // P2810
+            analysis.setAnalyzer(Executors.newSingleThreadExecutor(), analyzer) // P2810
+        } // P2810
 
         val useCaseGroup = UseCaseGroup.Builder()
             .addUseCase(cameraPreviewUseCase)
             .addUseCase(analysis)
-            .addUseCase(ocrAnalysis)
             .build()
 
         val camera = processCameraProvider.bindToLifecycle(

@@ -149,9 +149,14 @@ fun Scanner(
 
     val navController = LocalNavigation.current
 
+    // Add a state variable to manage the scanning mode
+    var isOcrMode by rememberSaveable { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
-            ScannerAppBar(cameraControl, cameraInfo, currentDevice, fullScreen)
+            ScannerAppBar(cameraControl, cameraInfo, currentDevice, fullScreen, isOcrMode) {
+                isOcrMode = !isOcrMode
+            }
         },
         floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
@@ -168,7 +173,8 @@ fun Scanner(
         ) {
             RequiresCameraPermission {
                 CameraPreviewArea(
-                    onCameraReady = { control, info -> cameraControl = control; cameraInfo = info }
+                    onCameraReady = { control, info -> cameraControl = control; cameraInfo = info },
+                    isOcrMode = isOcrMode
                 ) { value, send, isOcr ->
                     if (isOcr) {
                         currentOcrText = value
@@ -217,6 +223,7 @@ fun Scanner(
 @Composable
 private fun CameraPreviewArea(
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
+    isOcrMode: Boolean,
     onBarcodeDetected: (String, Boolean, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -255,13 +262,14 @@ private fun CameraPreviewArea(
 
     CameraPreviewContent(
         onCameraReady = onCameraReady,
+        isOcrMode = isOcrMode,
         onBarcodeDetected = { value ->
-            onBarcodeDetected(value, true, true)
+            onBarcodeDetected(value, true, isOcrMode)
         },
 
 
     ) { value ->
-        onBarcodeDetected(value, autoSend, true)
+        onBarcodeDetected(value, autoSend, isOcrMode)
 
         if (playSound) {
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 75)
@@ -403,6 +411,8 @@ private fun ScannerAppBar(
     info: CameraInfo?,
     currentDevice: BluetoothDevice?,
     transparent: Boolean,
+    isOcrMode: Boolean,
+    onToggleMode: () -> Unit
 ) {
     val navigation = LocalNavigation.current
 
@@ -427,9 +437,9 @@ private fun ScannerAppBar(
             }, Modifier.tooltip("History")) {
                 Icon(Icons.Default.History, "History")
             }
-//            IconButton(onDisconnect, Modifier.tooltip(stringResource(R.string.disconnect))) {
-//                Icon(Icons.Default.BluetoothDisabled, "Disconnect")
-//            }
+            IconButton(onClick = onToggleMode, Modifier.tooltip("Toggle Mode")) {
+                Text(if (isOcrMode) "OCR" else "Barcode")
+            }
             Dropdown()
         },
         colors = if (transparent) {

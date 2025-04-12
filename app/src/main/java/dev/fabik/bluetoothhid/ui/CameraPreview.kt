@@ -54,6 +54,7 @@ fun CameraPreviewContent(
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
     onBarcodeDetected: (String) -> Unit,
     onOcrDetected: (String) -> Unit,
+    isOcrMode: Boolean // P8dd9
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -67,7 +68,7 @@ fun CameraPreviewContent(
     val fixExposure by rememberPreference(PreferenceStore.FIX_EXPOSURE)
     val focusMode by rememberPreference(PreferenceStore.FOCUS_MODE)
 
-    LaunchedEffect(lifecycleOwner, frontCamera, resolution, fixExposure, focusMode) {
+    LaunchedEffect(lifecycleOwner, frontCamera, resolution, fixExposure, focusMode, isOcrMode) { // P02a7
         runCatching {
             viewModel.bindToCamera(
                 context.applicationContext,
@@ -79,6 +80,7 @@ fun CameraPreviewContent(
                 onCameraReady = onCameraReady,
                 onBarcode = onBarcodeDetected,
                 onOcr = onOcrDetected,
+                isOcrMode = isOcrMode // P02a7
             )
         }.onFailure {
             Log.e("CameraPreview", "Error binding camera!", it)
