@@ -131,7 +131,8 @@ fun CameraPreviewContent(
                 }
         )
 
-        OverlayCanvas(viewModel)
+        OverlayCanvas(viewModel,isOcrMode)
+
 
         AnimatedVisibility(
             visible = isFocusing,

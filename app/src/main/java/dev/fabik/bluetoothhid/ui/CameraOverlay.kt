@@ -49,7 +49,7 @@ import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
 @Composable
-fun OverlayCanvas(viewModel: CameraViewModel) {
+fun OverlayCanvas(viewModel: CameraViewModel, ocrMode: Boolean = false) {
     val overlayType by rememberPreference(PreferenceStore.OVERLAY_TYPE)
     val restrictArea by rememberPreference(PreferenceStore.RESTRICT_AREA)
     val showPossible by rememberPreference(PreferenceStore.SHOW_POSSIBLE)
@@ -69,8 +69,23 @@ fun OverlayCanvas(viewModel: CameraViewModel) {
         val y = this.size.height / 2
         val landscape = this.size.width > this.size.height
 
+        if(ocrMode) {
+            // Dibuja el rectángulo en la imagen basada en las coordenadas de la cámara
+            viewModel.lastScanSize?.let { camSize ->
+                // Calcula la escala entre la imagen de la cámara y el canvas
+                val scaleX = size.width / camSize.width.toFloat()
+                val scaleY = size.height / camSize.height.toFloat()
+                drawRect(
+                    color = Color.Yellow,
+                    topLeft = Offset(0f * scaleX, 580f * scaleY),
+                    size = Size((1080f - 0f) * scaleX, (860f - 580f) * scaleY),
+                    style = Stroke(width = 5f)
+                )
+            }
+        }
+
         // Draws the scanner area
-        if (restrictArea) {
+        if (restrictArea && !ocrMode) {
             viewModel.scanRect = when (overlayType) {
                 // Rectangle optimized for barcodes
                 1 -> {
@@ -134,6 +149,8 @@ fun OverlayCanvas(viewModel: CameraViewModel) {
 
             drawPath(path, color = Color.Blue, style = Stroke(5f))
         }
+
+
     }
 
     // Show the adjust buttons

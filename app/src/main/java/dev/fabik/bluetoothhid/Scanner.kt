@@ -216,8 +216,10 @@ fun Scanner(
                 ) { value, send, isOcr ->
                     if (isOcr) {
                         currentOcrText = getMostFrequentOcrValue() // Use the most frequent OCR value
+                        currentBarcode = null
                     } else {
                         currentBarcode = value
+                        currentOcrText = null
                     }
                     if (send) {
                         currentSendText(value)
@@ -304,30 +306,30 @@ private fun CameraPreviewArea(
         onCameraReady = onCameraReady,
         isOcrMode = isOcrMode,
         onBarcodeDetected = { value ->
-            onBarcodeDetected(value, true, isOcrMode)
+            onBarcodeDetected(value, autoSend, false)
         },
         ocrBuffer = ocrBuffer,
-        bufferLock = bufferLock
-    ) { value ->
-        onBarcodeDetected(value, autoSend, isOcrMode)
-
-        if (playSound) {
-            toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 75)
-        }
-
-        if (vibrate && vibrator.hasVibrator()) {
-            vibrator.vibrate(
-                VibrationEffect.createOneShot(75, VibrationEffect.DEFAULT_AMPLITUDE)
-            )
-        }
-
-        // Add detected OCR value to the buffer
-        if (isOcrMode) {
-            synchronized(bufferLock) {
-                ocrBuffer.add(OcrValue(value, System.currentTimeMillis()))
+        bufferLock = bufferLock,
+        onOcrDetected = { value ->
+            if (playSound) {
+                toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 75)
             }
+
+            if (vibrate && vibrator.hasVibrator()) {
+                vibrator.vibrate(
+                    VibrationEffect.createOneShot(75, VibrationEffect.DEFAULT_AMPLITUDE)
+                )
+            }
+
+            // Add detected OCR value to the buffer
+            if (isOcrMode) {
+                synchronized(bufferLock) {
+                    ocrBuffer.add(OcrValue(value, System.currentTimeMillis()))
+                }
+            }
+            onBarcodeDetected(value, autoSend, true)
         }
-    }
+    )
 }
 
 /**

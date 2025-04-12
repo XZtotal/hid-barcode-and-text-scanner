@@ -141,6 +141,7 @@ class CameraViewModel : ViewModel() {
                 HistoryViewModel.addHistoryItem(value, ZXingAnalyzer.format2Index(format))
                 onBarcode(value)
                 _lastBarcode = value
+                _lastOcrText = null
             }
         }
 
@@ -149,6 +150,8 @@ class CameraViewModel : ViewModel() {
             if (value.isNotEmpty()) {
                 onOcr(value)
                 _lastOcrText = value
+                _lastBarcode = null
+
             }
             //}
         }
@@ -378,6 +381,8 @@ class CameraViewModel : ViewModel() {
         result: List<BarcodeReader.Result>,
         source: Size
     ) {
+        // Guardar el tamaño de la imagen de la cámara
+        //lastScanSize = source
         detectorTrace.trigger()
 
         val barcode = result.map {
@@ -490,3 +495,4 @@ class CameraViewModel : ViewModel() {
     }
 
 }
+
