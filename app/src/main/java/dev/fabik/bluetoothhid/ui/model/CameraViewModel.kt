@@ -3,6 +3,7 @@ package dev.fabik.bluetoothhid.ui.model
 import android.content.Context
 import android.graphics.Point
 import android.graphics.PointF
+
 import android.hardware.camera2.CaptureRequest
 import android.util.Log
 import android.util.Size
@@ -51,6 +52,8 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import java.util.Queue
 import java.util.concurrent.ConcurrentLinkedQueue
+import android.graphics.Rect as AndroidRect // Import with alias to avoid naming conflict
+import androidx.compose.ui.geometry.Rect as ComposeRect // Import with alias for clarity
 
 // based on: https://medium.com/androiddevelopers/getting-started-with-camerax-in-jetpack-compose-781c722ca0c4
 class CameraViewModel : ViewModel() {
@@ -61,6 +64,15 @@ class CameraViewModel : ViewModel() {
         val HD_720P = Size(960, 720)
         val FHD_1080P = Size(1440, 1080)
         val UHD_2160P = Size(2160, 1440)
+    }
+
+    private fun toAndroidRect(composeRect: ComposeRect): AndroidRect {
+        return AndroidRect(
+            composeRect.left.toInt(),
+            composeRect.top.toInt(),
+            composeRect.right.toInt(),
+            composeRect.bottom.toInt()
+        )
     }
 
     // Used to set up a link between the Camera and your UI.
@@ -111,7 +123,10 @@ class CameraViewModel : ViewModel() {
         onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
         onBarcode: (String) -> Unit,
         onOcr: (String) -> Unit,
-        isOcrMode: Boolean // P4ddd
+        isOcrMode: Boolean, // P4ddd
+        ocrBuffer: Queue<String>,
+        bufferLock: Any
+
     ) {
         Log.d(TAG, "Binding camera...")
         val processCameraProvider = ProcessCameraProvider.awaitInstance(appContext)
@@ -139,10 +154,15 @@ class CameraViewModel : ViewModel() {
         )
         barcodeAnalyzer = analyzer
 
-        val ocrBuffer: Queue<String> = ConcurrentLinkedQueue() // P6497
-        val bufferLock = Any() // P6497
+        val androidRect = toAndroidRect(scanRect)
 
-        val ocrAnalyzer = OcrAnalyzer(onTextDetected, ocrBuffer, bufferLock, scanRect.toAndroidRect()) // P6497
+        val ocrAnalyzer = OcrAnalyzer(
+            ::onOcrResult,
+            ocrBuffer = ocrBuffer,
+            bufferLock = bufferLock,
+            delimitedFrame = androidRect
+
+        )
         this.ocrAnalyzer = ocrAnalyzer
 
         val resolutionSelector = ResolutionSelector.Builder().setResolutionStrategy(
@@ -395,6 +415,31 @@ class CameraViewModel : ViewModel() {
                 onBarcodeDetected(value, barcode.format)
             }
         }
+    }
+
+    fun onOcrResult(value: String?) {
+        if (value == null) return;
+        var v = value
+        _scanRegex?.let { re ->
+            // extract first capture group if it exists
+            re.find(value)?.let { match ->
+                match.groupValues.getOrNull(1)?.let { group ->
+                    v = group
+                }
+            }
+        }
+        if (v == null) return;
+
+        detectorTrace.trigger()
+        _jsEngineService?.let { s ->
+            viewModelScope.launch(Dispatchers.IO) {
+                v = mapJS(s, v!!, "TEXT")
+                onTextDetected(v ?: return@launch)
+            }
+        } ?: run {
+            onTextDetected(v ?: return)
+        }
+        onTextDetected(v ?: return)
     }
 
     private suspend fun mapJS(

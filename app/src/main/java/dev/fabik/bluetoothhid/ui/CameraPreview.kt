@@ -47,14 +47,17 @@ import dev.fabik.bluetoothhid.utils.PreferenceStore
 import dev.fabik.bluetoothhid.utils.getPreferenceStateDefault
 import dev.fabik.bluetoothhid.utils.rememberPreference
 import kotlinx.coroutines.launch
+import java.util.Queue
 
 @Composable
 fun CameraPreviewContent(
     viewModel: CameraViewModel = viewModel<CameraViewModel>(),
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
+    isOcrMode: Boolean, // P8dd9
     onBarcodeDetected: (String) -> Unit,
-    onOcrDetected: (String) -> Unit,
-    isOcrMode: Boolean // P8dd9
+    ocrBuffer: Queue<String>,
+    bufferLock: Any,
+    onOcrDetected: (String) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -80,7 +83,9 @@ fun CameraPreviewContent(
                 onCameraReady = onCameraReady,
                 onBarcode = onBarcodeDetected,
                 onOcr = onOcrDetected,
-                isOcrMode = isOcrMode // P02a7
+                isOcrMode = isOcrMode, // P02a7
+                ocrBuffer = ocrBuffer,
+                bufferLock = bufferLock
             )
         }.onFailure {
             Log.e("CameraPreview", "Error binding camera!", it)

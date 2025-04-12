@@ -35,7 +35,7 @@ class OcrAnalyzer(
     }
 
     private fun processImage(image: InputImage, imageProxy: ImageProxy) {
-        val croppedBitmap = cropToDelimitedFrame(image.bitmapInternal)
+        val croppedBitmap = cropToDelimitedFrame(image.bitmapInternal ?: return)
         val croppedImage = InputImage.fromBitmap(croppedBitmap, image.rotationDegrees)
 
         recognizer.process(croppedImage)

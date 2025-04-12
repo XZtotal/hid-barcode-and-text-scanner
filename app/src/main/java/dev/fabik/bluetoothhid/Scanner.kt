@@ -297,8 +297,8 @@ private fun CameraPreviewArea(
         onBarcodeDetected = { value ->
             onBarcodeDetected(value, true, isOcrMode)
         },
-
-
+        ocrBuffer = ocrBuffer,
+        bufferLock = bufferLock
     ) { value ->
         onBarcodeDetected(value, autoSend, isOcrMode)
 
