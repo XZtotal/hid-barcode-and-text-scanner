@@ -12,9 +12,12 @@ import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.nio.ByteBuffer
+import java.util.Queue
 
 class OcrAnalyzer(
-    private val onTextDetected: (String) -> Unit
+    private val onTextDetected: (String) -> Unit,
+    private val ocrBuffer: Queue<String>, // Add buffer parameter
+    private val bufferLock: Any // Add buffer lock parameter
 ) : ImageAnalysis.Analyzer {
 
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -33,6 +36,10 @@ class OcrAnalyzer(
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
                 onTextDetected(visionText.text)
+                // Add detected OCR value to the buffer
+                synchronized(bufferLock) {
+                    ocrBuffer.add(visionText.text)
+                }
                 imageProxy.close()
             }
             .addOnFailureListener { e ->

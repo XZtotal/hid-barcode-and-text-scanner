@@ -52,6 +52,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -89,6 +90,11 @@ import dev.fabik.bluetoothhid.utils.PreferenceStore
 import dev.fabik.bluetoothhid.utils.rememberPreference
 import dev.fabik.bluetoothhid.utils.rememberPreferenceDefault
 import kotlinx.coroutines.launch
+import java.util.LinkedList
+import java.util.Queue
+import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.concurrent.schedule
+import kotlin.concurrent.timer
 
 
 @Composable
@@ -152,6 +158,27 @@ fun Scanner(
     // Add a state variable to manage the scanning mode
     var isOcrMode by rememberSaveable { mutableStateOf(false) }
 
+    // Add a buffer to store OCR values detected in the last 2 seconds
+    val ocrBuffer = remember { ConcurrentLinkedQueue<String>() }
+    val bufferLock = remember { Any() }
+
+    // Function to determine the most frequent OCR value in the buffer
+    fun getMostFrequentOcrValue(): String? {
+        synchronized(bufferLock) {
+            val frequencyMap = ocrBuffer.groupingBy { it }.eachCount()
+            return frequencyMap.maxByOrNull { it.value }?.key
+        }
+    }
+
+    // Timer to clear the buffer every 2 seconds
+    LaunchedEffect(Unit) {
+        timer(period = 2000) {
+            synchronized(bufferLock) {
+                ocrBuffer.clear()
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             ScannerAppBar(cameraControl, cameraInfo, currentDevice, fullScreen, isOcrMode) {
@@ -174,10 +201,12 @@ fun Scanner(
             RequiresCameraPermission {
                 CameraPreviewArea(
                     onCameraReady = { control, info -> cameraControl = control; cameraInfo = info },
-                    isOcrMode = isOcrMode
+                    isOcrMode = isOcrMode,
+                    ocrBuffer = ocrBuffer, // Pass the buffer to CameraPreviewArea
+                    bufferLock = bufferLock // Pass the buffer lock to CameraPreviewArea
                 ) { value, send, isOcr ->
                     if (isOcr) {
-                        currentOcrText = value
+                        currentOcrText = getMostFrequentOcrValue() // Use the most frequent OCR value
                     } else {
                         currentBarcode = value
                     }
@@ -224,6 +253,8 @@ fun Scanner(
 private fun CameraPreviewArea(
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
     isOcrMode: Boolean,
+    ocrBuffer: Queue<String>, // Add the buffer parameter
+    bufferLock: Any, // Add the buffer lock parameter
     onBarcodeDetected: (String, Boolean, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -279,6 +310,13 @@ private fun CameraPreviewArea(
             vibrator.vibrate(
                 VibrationEffect.createOneShot(75, VibrationEffect.DEFAULT_AMPLITUDE)
             )
+        }
+
+        // Add detected OCR value to the buffer
+        if (isOcrMode) {
+            synchronized(bufferLock) {
+                ocrBuffer.add(value)
+            }
         }
     }
 }
