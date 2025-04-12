@@ -439,13 +439,12 @@ class CameraViewModel : ViewModel() {
         detectorTrace.trigger()
         _jsEngineService?.let { s ->
             viewModelScope.launch(Dispatchers.IO) {
-                v = mapJS(s, v!!, "TEXT")
+                v = mapJS(s, v!!.replace("\n"," "), "TEXT")
                 onTextDetected(v ?: return@launch)
             }
         } ?: run {
             onTextDetected(v ?: return)
         }
-        onTextDetected(v ?: return)
     }
 
     private suspend fun mapJS(
