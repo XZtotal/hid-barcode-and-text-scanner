@@ -34,6 +34,7 @@ import androidx.core.graphics.toPointF
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.fabik.bluetoothhid.OcrValue
 import dev.fabik.bluetoothhid.utils.JsEngineService
 import dev.fabik.bluetoothhid.utils.LatencyTrace
 import dev.fabik.bluetoothhid.utils.ZXingAnalyzer
@@ -52,6 +53,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import java.util.Queue
 import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.coroutines.coroutineContext
 import android.graphics.Rect as AndroidRect // Import with alias to avoid naming conflict
 import androidx.compose.ui.geometry.Rect as ComposeRect // Import with alias for clarity
 
@@ -124,7 +126,7 @@ class CameraViewModel : ViewModel() {
         onBarcode: (String) -> Unit,
         onOcr: (String) -> Unit,
         isOcrMode: Boolean, // P4ddd
-        ocrBuffer: Queue<String>,
+        ocrBuffer: Queue<OcrValue>,
         bufferLock: Any
 
     ) {
@@ -140,10 +142,12 @@ class CameraViewModel : ViewModel() {
         }
 
         onTextDetected = { value ->
-            if (!value.contentEquals(_lastOcrText)) {
+            //if (!value.contentEquals(_lastOcrText)) {
+            if (value.isNotEmpty()) {
                 onOcr(value)
                 _lastOcrText = value
             }
+            //}
         }
 
         val analyzer = ZXingAnalyzer(
@@ -157,11 +161,8 @@ class CameraViewModel : ViewModel() {
         val androidRect = toAndroidRect(scanRect)
 
         val ocrAnalyzer = OcrAnalyzer(
-            ::onOcrResult,
-            ocrBuffer = ocrBuffer,
-            bufferLock = bufferLock,
-            delimitedFrame = androidRect
-
+            onTextDetected = {value: String -> onOcrResult(value,bufferLock,ocrBuffer)},
+            delimitedFrame = scanRect,
         )
         this.ocrAnalyzer = ocrAnalyzer
 
@@ -417,9 +418,14 @@ class CameraViewModel : ViewModel() {
         }
     }
 
-    fun onOcrResult(value: String?) {
+    fun onOcrResult(value: String?,  bufferLock: Any, ocrBuffer: Queue<OcrValue>, ) {
         if (value == null) return;
         var v = value
+
+//        synchronized(bufferLock) {
+//            ocrBuffer.add(v)
+//        }
+
         _scanRegex?.let { re ->
             // extract first capture group if it exists
             re.find(value)?.let { match ->

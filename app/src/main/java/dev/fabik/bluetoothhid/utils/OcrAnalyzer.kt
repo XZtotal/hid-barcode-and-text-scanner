@@ -1,24 +1,19 @@
 package dev.fabik.bluetoothhid.utils
 
-import android.annotation.SuppressLint
-import android.graphics.Bitmap
-import android.graphics.ImageFormat
-import android.graphics.Rect
-import android.media.Image
+import android.graphics.Rect as AndroidRect
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.nio.ByteBuffer
 import java.util.Queue
 
 class OcrAnalyzer(
     private val onTextDetected: (String) -> Unit,
-    private val ocrBuffer: Queue<String>,
-    private val bufferLock: Any,
     private val delimitedFrame: Rect
 ) : ImageAnalysis.Analyzer {
 
@@ -35,30 +30,76 @@ class OcrAnalyzer(
     }
 
     private fun processImage(image: InputImage, imageProxy: ImageProxy) {
-        val croppedBitmap = cropToDelimitedFrame(image.bitmapInternal ?: return)
-        val croppedImage = InputImage.fromBitmap(croppedBitmap, image.rotationDegrees)
+        val rotation = imageProxy.imageInfo.rotationDegrees
+        val imageWidth = image.width
+        val imageHeight = image.height
 
-        recognizer.process(croppedImage)
+        // Convertir delimitedFrame al sistema de coordenadas original de la imagen
+//        val adjustedRect = when (rotation) {
+//            90 -> {
+//                Rect(
+//                    left = (imageWidth - delimitedFrame.bottom).toFloat(),
+//                    top = delimitedFrame.left,
+//                    right = (imageWidth - delimitedFrame.top).toFloat(),
+//                    bottom = delimitedFrame.right
+//                )
+//            }
+//            180 -> {
+//                Rect(
+//                    left = (imageWidth - delimitedFrame.right).toFloat(),
+//                    top = (imageHeight - delimitedFrame.bottom).toFloat(),
+//                    right = (imageWidth - delimitedFrame.left).toFloat(),
+//                    bottom = (imageHeight - delimitedFrame.top).toFloat()
+//                )
+//            }
+//            270 -> {
+//                Rect(
+//                    left = delimitedFrame.top,
+//                    top = (imageHeight - delimitedFrame.right).toFloat(),
+//                    right = delimitedFrame.bottom,
+//                    bottom = (imageHeight - delimitedFrame.left).toFloat()
+//                )
+//            }
+//            else -> delimitedFrame // 0 grados
+
+//        }
+        val adjustedRect = Rect(
+                    left = 0f,
+                    top = 580f,
+                    right = 1080f,
+                    bottom = 860f
+                )
+
+        recognizer.process(image)
             .addOnSuccessListener { visionText ->
-                onTextDetected(visionText.text)
-                synchronized(bufferLock) {
-                    ocrBuffer.add(visionText.text)
-                }
+                val filteredText = buildString {
+                    for (block in visionText.textBlocks) {
+                        for (line in block.lines) {
+                            line.boundingBox?.let { boundingBox ->
+                                val lineRect = Rect(
+                                    left = boundingBox.left.toFloat(),
+                                    top = boundingBox.top.toFloat(),
+                                    right = boundingBox.right.toFloat(),
+                                    bottom = boundingBox.bottom.toFloat()
+                                )
+                                if (adjustedRect.left <= lineRect.left &&
+                                    adjustedRect.top <= lineRect.top &&
+                                    adjustedRect.right >= lineRect.right &&
+                                    adjustedRect.bottom >= lineRect.bottom) {
+                                    append(line.text).append("\n")
+                                }
+                            }
+                        }
+                    }
+                }.trim()
+
+                onTextDetected(filteredText)
+
                 imageProxy.close()
             }
             .addOnFailureListener { e ->
-                Log.e("OcrAnalyzer", "Text recognition error: ${e.message}")
+                Log.e("OcrAnalyzer", "Error en reconocimiento de texto: ${e.message}")
                 imageProxy.close()
             }
-    }
-
-    private fun cropToDelimitedFrame(bitmap: Bitmap): Bitmap {
-        return Bitmap.createBitmap(
-            bitmap,
-            delimitedFrame.left,
-            delimitedFrame.top,
-            delimitedFrame.width(),
-            delimitedFrame.height()
-        )
     }
 }

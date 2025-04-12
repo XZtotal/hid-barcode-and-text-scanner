@@ -29,6 +29,11 @@ android {
         vectorDrawables {
             useSupportLibrary false
         }
+
+        // Especifica el API de destino para RenderScript
+        renderscriptTargetApi 21
+        // Habilita el modo de soporte para RenderScript
+        renderscriptSupportModeEnabled true
     }
 
     buildTypes {

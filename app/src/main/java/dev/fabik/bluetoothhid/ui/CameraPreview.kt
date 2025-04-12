@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.fabik.bluetoothhid.LocalJsEngineService
+import dev.fabik.bluetoothhid.OcrValue
 import dev.fabik.bluetoothhid.R
 import dev.fabik.bluetoothhid.ui.model.CameraViewModel
 import dev.fabik.bluetoothhid.utils.PreferenceStore
@@ -55,7 +56,7 @@ fun CameraPreviewContent(
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
     isOcrMode: Boolean, // P8dd9
     onBarcodeDetected: (String) -> Unit,
-    ocrBuffer: Queue<String>,
+    ocrBuffer: Queue<OcrValue>,
     bufferLock: Any,
     onOcrDetected: (String) -> Unit
 ) {

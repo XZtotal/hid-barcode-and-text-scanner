@@ -132,6 +132,8 @@ fun BoxScope.ElevatedWarningCard(
     }
 }
 
+data class OcrValue(val value: String, val timestamp: Long)
+
 /**
  * Scanner screen with camera preview.
  *
@@ -159,23 +161,30 @@ fun Scanner(
     var isOcrMode by rememberSaveable { mutableStateOf(false) }
 
     // Add a buffer to store OCR values detected in the last 2 seconds
-    val ocrBuffer = remember { ConcurrentLinkedQueue<String>() }
+    val ocrBuffer = remember { ConcurrentLinkedQueue<OcrValue>() }
+
     val bufferLock = remember { Any() }
 
     // Function to determine the most frequent OCR value in the buffer
     fun getMostFrequentOcrValue(): String? {
         synchronized(bufferLock) {
-            val frequencyMap = ocrBuffer.groupingBy { it }.eachCount()
+            val frequencyMap = ocrBuffer.groupingBy { it.value }.eachCount()
             return frequencyMap.maxByOrNull { it.value }?.key
         }
     }
 
-    // Timer to clear the buffer every 2 seconds
+    // Timer to clear the buffer every 1 seconds
     LaunchedEffect(Unit) {
-        timer(period = 2000) {
+        timer(period = 1000) {
+            val fval = getMostFrequentOcrValue()
             synchronized(bufferLock) {
-                ocrBuffer.clear()
+                val currentTime = System.currentTimeMillis()
+                ocrBuffer.removeIf { currentTime - it.timestamp > 1000 }
+                if (fval != null) {
+                    ocrBuffer.add(OcrValue(fval, currentTime))
+                }
             }
+
         }
     }
 
@@ -253,7 +262,7 @@ fun Scanner(
 private fun CameraPreviewArea(
     onCameraReady: (CameraControl?, CameraInfo?) -> Unit,
     isOcrMode: Boolean,
-    ocrBuffer: Queue<String>, // Add the buffer parameter
+    ocrBuffer: Queue<OcrValue>, // Add the buffer parameter
     bufferLock: Any, // Add the buffer lock parameter
     onBarcodeDetected: (String, Boolean, Boolean) -> Unit,
 ) {
@@ -315,7 +324,7 @@ private fun CameraPreviewArea(
         // Add detected OCR value to the buffer
         if (isOcrMode) {
             synchronized(bufferLock) {
-                ocrBuffer.add(value)
+                ocrBuffer.add(OcrValue(value, System.currentTimeMillis()))
             }
         }
     }
