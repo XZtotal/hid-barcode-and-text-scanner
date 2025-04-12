@@ -17,9 +17,9 @@ import java.util.Queue
 
 class OcrAnalyzer(
     private val onTextDetected: (String) -> Unit,
-    private val ocrBuffer: Queue<String>, // Add buffer parameter
-    private val bufferLock: Any, // Add buffer lock parameter
-    private val delimitedFrame: Rect // Add delimited frame parameter
+    private val ocrBuffer: Queue<String>,
+    private val bufferLock: Any,
+    private val delimitedFrame: Rect
 ) : ImageAnalysis.Analyzer {
 
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -41,7 +41,6 @@ class OcrAnalyzer(
         recognizer.process(croppedImage)
             .addOnSuccessListener { visionText ->
                 onTextDetected(visionText.text)
-                // Add detected OCR value to the buffer
                 synchronized(bufferLock) {
                     ocrBuffer.add(visionText.text)
                 }
