@@ -132,7 +132,7 @@ class CameraViewModel : ViewModel() {
             _readerOptions,
             _scanDelay,
             ::onBarcodeAnalyze,
-            ::onBarcodeResult
+            ::onBarcodeResult,
         )
         barcodeAnalyzer = analyzer
 

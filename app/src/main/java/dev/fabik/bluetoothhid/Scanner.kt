@@ -253,8 +253,15 @@ private fun CameraPreviewArea(
     val autoSend by rememberPreferenceDefault(PreferenceStore.AUTO_SEND)
     val vibrate by rememberPreferenceDefault(PreferenceStore.VIBRATE)
 
-    CameraPreviewContent(onCameraReady = onCameraReady) { value, isOcr ->
-        onBarcodeDetected(value, autoSend, isOcr)
+    CameraPreviewContent(
+        onCameraReady = onCameraReady,
+        onBarcodeDetected = { value ->
+            onBarcodeDetected(value, true, true)
+        },
+
+
+    ) { value ->
+        onBarcodeDetected(value, autoSend, true)
 
         if (playSound) {
             toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 75)
